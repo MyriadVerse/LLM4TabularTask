@@ -1,3 +1,4 @@
-dataset/
 generate_prompt/
 output/
+cache/
+__pycache__/

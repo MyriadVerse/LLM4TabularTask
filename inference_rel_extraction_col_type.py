@@ -1,3 +1,4 @@
+import ast
 import os
 import json
 import sys
@@ -18,15 +19,7 @@ from tqdm import tqdm
 
 def parse_config():
     parser = argparse.ArgumentParser(description='arg parser')
-    parser.add_argument('--base_model', type=str, default="osunlp/TableLlama")
-    parser.add_argument('--cache_dir', type=str, default="./cache")
-    parser.add_argument('--context_size', type=int, default=8192, help='context size during fine-tuning')
-    parser.add_argument('--flash_attn', type=bool, default=False, help='')
-    parser.add_argument('--temperature', type=float, default=0.6, help='')
-    parser.add_argument('--top_p', type=float, default=0.9, help='')
-    parser.add_argument('--max_gen_len', type=int, default=128, help='')
-    parser.add_argument('--input_data_file', type=str, default='./dataset/sotab-cta.json', help='')
-    parser.add_argument('--output_data_file', type=str, default='./output/sotab-cta.json', help='')
+    parser.add_argument('--input_data', type=str, default=None, help='input data')
     args = parser.parse_args()
     return args
 
@@ -38,24 +31,13 @@ def generate_prompt(instruction, question, input_seg=None):
 
 
 def build_generator(
-    i, item, model, tokenizer, temperature=0.6, top_p=0.9, max_gen_len=64, use_cache=True, max_token_count=6144
+    item, model, tokenizer, temperature=0.6, top_p=0.9, max_gen_len=64, use_cache=True, max_token_count=6144
 ):
     def response(item):
-    # def response(material, question, material_type="", material_title=None):
-        # material = read_txt_file(material)
-        # prompt = format_prompt(material, question, material_type, material_title)
         prompt = generate_prompt(instruction = item["instruction"], input_seg = item["input_seg"], question = item["question"])
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
         token_count = inputs['input_ids'].size(1)
-
-        if token_count > 6144 and token_count <= 8192:
-            print(f"Item {i}: {item['table_id']}, token count {token_count}, Warning")
-
-        # 检查 token count 是否超过阈值
-        if token_count > 8192:
-            print(f"Item {i}: {item['table_id']}, token count {token_count}. return None")
-            return None
         
         output = model.generate(
             **inputs,
@@ -73,91 +55,51 @@ def build_generator(
     return response
 
 def main(args):
-    if args.flash_attn:
-        replace_llama_attn()
-
     # Set RoPE scaling factor
     config = transformers.AutoConfig.from_pretrained(
-        args.base_model,
-        cache_dir=args.cache_dir,
+        "osunlp/TableLlama",
+        cache_dir="./cache",
     )
 
     orig_ctx_len = getattr(config, "max_position_embeddings", None)
-    if orig_ctx_len and args.context_size > orig_ctx_len:
-        scaling_factor = float(math.ceil(args.context_size / orig_ctx_len))
+    if orig_ctx_len and 8192 > orig_ctx_len:
+        scaling_factor = float(math.ceil(8192 / orig_ctx_len))
         config.rope_scaling = {"type": "linear", "factor": scaling_factor}
 
     # Load model and tokenizer
+    print("Loading model...")
     model = transformers.AutoModelForCausalLM.from_pretrained(
-        args.base_model,
+        "osunlp/TableLlama",
         config=config,
-        cache_dir=args.cache_dir,
+        cache_dir="./cache",
         torch_dtype=torch.float16,
         device_map="auto",
     )
     model.resize_token_embeddings(32001)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
-        args.base_model,
-        cache_dir=args.cache_dir,
-        model_max_length=args.context_size if args.context_size > orig_ctx_len else orig_ctx_len,
-        # padding_side="right",
+        "osunlp/TableLlama",
+        cache_dir="./cache",
+        model_max_length=8192 if 8192 > orig_ctx_len else orig_ctx_len,
         padding_side="left",
         use_fast=False,
     )
-    print('Model max input length is ', args.context_size if args.context_size > orig_ctx_len else orig_ctx_len)
 
     model.eval()
     if torch.__version__ >= "2" and sys.platform != "win32":
         model = torch.compile(model)
 
-    with open(args.input_data_file, "r") as f:
-        test_data = json.load(f)
-
-    # import random
-    # test_data = random.sample(test_data, k=2)
-    with torch.no_grad():  # 禁用梯度计算
-        out_of_max_token = 0
-        test_data_pred = []
-        print(args.input_data_file, " length: ", len(test_data))
-
-        start_time = time.time()
-        for i in tqdm(range(len(test_data))):
-            item = test_data[i]
-            new_item = {}
-            respond = build_generator(i, item, model, tokenizer, temperature=args.temperature, top_p=args.top_p, max_gen_len=args.max_gen_len, use_cache=not args.flash_attn, max_token_count=args.context_size if args.context_size > orig_ctx_len else orig_ctx_len)   # the temperature and top_p are highly different with previous alpaca exp, pay attention to this if there is sth wrong later
-            output = respond(item)
-            if output is None:
-                out_of_max_token += 1
-
-            new_item["idx"] = i
-            new_item["table_id"] = test_data[i]["table_id"]
-            new_item["instruction"] = test_data[i]["instruction"]
-            new_item["input_seg"] = test_data[i]["input_seg"]
-            new_item["question"] = test_data[i]["question"]
-            new_item["ground_truth"] = test_data[i]["ground_truth"]
-            new_item["output"] = test_data[i]["output"]
-            new_item["predict"] = output
-
-            test_data_pred.append(new_item)
-
-            del item, new_item, output
-            gc.collect()
-            torch.cuda.empty_cache()
-            # import pdb
-            # pdb.set_trace() 
+    with torch.no_grad():  
+        print("Loading data...")
+        item = json.loads(args.input_data)
+        print('llm')
+        respond = build_generator(item, model, tokenizer, temperature=0.6, top_p=0.9, max_gen_len=128, use_cache=True, max_token_count=8192 if 8192 > orig_ctx_len else orig_ctx_len)   
+        output = respond(item)
+        print(output)
         
-    end_time = time.time()
-    total_time = end_time - start_time
-    print(f"Total inference time: {total_time:.4f} seconds")
-
-    print(f"Out of max token count: {out_of_max_token}")
-    with open(args.output_data_file, "w") as f:
-        json.dump(test_data_pred, f, indent = 2)
-
-
 if __name__ == "__main__":
-
+    print("Loading config...")
     args = parse_config()
     main(args)
+    
 
