@@ -89,7 +89,7 @@ def generate_prompt(task, table, query):
             row_data = table.iloc[row_idx].apply(str) 
             example_values = " | ".join(row_data)
             table_cell += f" [SEP] | {example_values} |"
-            
+
         table_prompt = {}
         table_prompt["instruction"] = "This is a hybrid question answering task. The goal of this task is to answer the question given tables."
         table_prompt["input_seg"] = col_head + table_cell
@@ -149,10 +149,6 @@ def process_query(task, table_str, query):
         return f"Error processing query: {str(e)}"
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print("Usage: python process_query.py <task> <table_path> <query>")
-        sys.exit(1)
-        
     task = sys.argv[1]
     table_str = sys.argv[2]
     query = sys.argv[3]
