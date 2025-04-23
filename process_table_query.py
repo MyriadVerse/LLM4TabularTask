@@ -67,7 +67,8 @@ def generate_prompt(task, table, query):
                 table_cell += f" [SEP] row {row_idx+1}: | {example_values} |"
 
         # highlight target column
-        column_index = int(query[-1])
+        # column_index = int(query[-1])
+        column_index = table.columns.get_loc(query.split()[-1]) 
         entities = ", ".join([f"<{item.strip()}>" for item in table.iloc[:, column_index].dropna().apply(str)][:min_row_len])
 
         table_prompt = {}
