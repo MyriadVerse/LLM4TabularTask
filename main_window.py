@@ -140,7 +140,7 @@ class QueryApp(QMainWindow):
             # Change font to a more formal style for this task
             # font = QFont("Times New Roman", 12)
             # self.query_input.setFont(font)
-            self.query_input.setPlaceholderText("i.e. What are the correct column types for column Player")
+            self.query_input.setPlaceholderText("e.g. What are the correct column types for column Player")
 
 
             # Load a different image for this task
@@ -151,7 +151,7 @@ class QueryApp(QMainWindow):
             # Change font to a more modern style for this task
             # font = QFont("Arial", 12)
             # self.query_input.setFont(font)
-            self.query_input.setPlaceholderText("i.e. How many dollars are the basic research in 2016 and 2018")
+            self.query_input.setPlaceholderText("e.g. How many dollars are the basic research in 2016 and 2018")
 
 
             # Load a different image for this task
